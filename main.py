@@ -1,28 +1,26 @@
 import os
-import logging
-from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from dotenv import load_dotenv
 
-# Carrega variáveis do .env
 load_dotenv()
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# Configura logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("🌊 Olá! Eu sou o SurfCheck Bot. Envie /previsao para saber as condições do mar.")
 
-# Comandos
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🌊 Olá! O bot do surf está no ar!")
+# Exemplo de handler para /previsao (ajuste a lógica conforme seu código real)
+async def previsao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("📈 Previsão do surf: ondas de 1,5m, vento fraco, swell de sudeste.")
 
-# Função principal
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
-    app.run_polling()  # <- sem await
+    app.add_handler(CommandHandler("previsao", previsao))
+
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
