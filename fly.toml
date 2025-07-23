@@ -6,9 +6,5 @@ app = "surfcheck-bot-python"
 [env]
   PYTHONUNBUFFERED = "TRUE"
 
-[[services]]
-  internal_port = 8080
-  protocol = "tcp"
-
-  [[services.ports]]
-    port = 80
+[processes]
+  app = "python main.py"
