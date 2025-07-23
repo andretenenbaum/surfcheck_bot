@@ -1,11 +1,12 @@
 app = "surfcheck-bot"
-primary_region = "gru"
+kill_signal = "SIGINT"
+kill_timeout = 5
+processes = []
 
 [env]
-  BOT_TOKEN = "USE-O-VALOR-REAL-NO-FLY"  # Você pode deixar essa linha e definir no painel
 
-[build]
-  image = "python:3.10-slim"
+[experimental]
+  auto_rollback = true
 
 [[services]]
   internal_port = 8080
