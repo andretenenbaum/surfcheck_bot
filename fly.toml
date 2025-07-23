@@ -1,0 +1,20 @@
+app = "surfcheck-bot"
+primary_region = "gru"
+
+[env]
+  BOT_TOKEN = "USE-O-VALOR-REAL-NO-FLY"  # Você pode deixar essa linha e definir no painel
+
+[build]
+  image = "python:3.10-slim"
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
