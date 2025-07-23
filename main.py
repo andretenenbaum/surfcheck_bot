@@ -16,7 +16,7 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("previsao", previsao))
-    app.run_polling()
+    app.run_polling(close_loop=False)
 
 if __name__ == "__main__":
     main()
