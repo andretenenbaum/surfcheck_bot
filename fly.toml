@@ -1,10 +1,7 @@
 app = "surfcheck-bot-python"
 
-[build]
-  image = "python:3.11-slim"
-
-[env]
-  PYTHONUNBUFFERED = "TRUE"
+kill_signal = "SIGINT"
+kill_timeout = 5
 
 [processes]
-  app = "python main.py"
+worker = "python main.py"
