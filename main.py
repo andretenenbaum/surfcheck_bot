@@ -79,7 +79,7 @@ async def obter_previsao_openmeteo(lat, lon, dias):
             resp = await client.get(url, params={
                 "latitude": lat,
                 "longitude": lon,
-                "hourly": "wave_height,wave_direction,wind_speed,wind_direction",
+                "hourly": "wave_height,wave_direction,wind_wave_height,wind_wave_direction,wind_speed,wind_direction",
                 "timezone": "America/Sao_Paulo",
                 "start_date": start,
                 "end_date": end
