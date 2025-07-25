@@ -1,4 +1,4 @@
-app = "surfcheck-bot-python"
+app = "surfcheck-bot-24-jul-v1"
 
 kill_signal = "SIGINT"
 kill_timeout = 5
