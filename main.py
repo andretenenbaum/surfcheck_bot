@@ -63,7 +63,7 @@ async def escolher_dia(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         resposta += f"Melhor horário: {previsao['melhor_horario']}\n"
         resposta += f"Onda: {previsao['onda']} m ({previsao['direcao_onda']}°)\n"
         resposta += f"Vento: {previsao['vento']} km/h ({previsao['direcao_vento']}°)\n"
-        resposta += f"⭐️ Condição: {previsao['estrelas']} estrelas\n"
+        resposta += f"{previsao['estrelas']}\n"
         resposta += f"📌 Análise: {previsao['comentario']}\n\n"
 
     await update.message.reply_markdown(resposta)
@@ -79,10 +79,18 @@ async def obter_previsao_openmeteo(lat, lon, dias):
             resp = await client.get(url, params={
                 "latitude": lat,
                 "longitude": lon,
-                "hourly": "wave_height,wave_direction,wind_wave_height,wind_wave_direction,wind_speed,wind_direction",
+                "hourly": ",".join([
+                    "wave_height",
+                    "wave_direction",
+                    "wind_speed",
+                    "wind_direction",
+                    "wind_wave_height",
+                    "wind_wave_direction"
+                ]),
                 "timezone": "America/Sao_Paulo",
                 "start_date": start,
-                "end_date": end
+                "end_date": end,
+                "models": "best_match"
             })
 
         resp.raise_for_status()
