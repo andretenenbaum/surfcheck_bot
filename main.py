@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
+# Coordenadas do pico de Itaúna – Saquarema
 PICOS = {
     "1": {"nome": "Itaúna – Saquarema", "latitude": -22.93668, "longitude": -42.48337}
 }
@@ -17,7 +18,7 @@ PICOS = {
 (ESCOLHENDO_PICO, ESCOLHENDO_DIA) = range(2)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("🌊 Olá! Eu sou o SurfCheck Bot. Envie /previsao para saber as condições do mar.")
+    await update.message.reply_text("\U0001F30A Olá! Eu sou o SurfCheck Bot. Envie /previsao para saber as condições do mar.")
 
 async def previsao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     mensagem = "Escolha o pico de surf (digite o número):\n"
@@ -50,42 +51,42 @@ async def escolher_dia(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         return ESCOLHENDO_DIA
 
     pico = context.user_data["pico"]
-    previsoes = await obter_previsao_completa(pico["latitude"], pico["longitude"], dias)
+    previsoes = await obter_previsao_openmeteo(pico["latitude"], pico["longitude"], dias)
 
     if not previsoes:
         await update.message.reply_text("Erro ao obter a previsão. Tente novamente mais tarde.")
         return ConversationHandler.END
 
-    resposta = f"🌊 *Previsão para {pico['nome']}*\n\n"
+    resposta = f"\U0001F30A *Previsão para {pico['nome']}*\n\n"
     for previsao in previsoes:
-        resposta += f"📅 {previsao['data']}\n"
+        resposta += f"\U0001F4C5 {previsao['data']}\n"
         resposta += f"Melhor janela: {previsao['melhor_janela']}\n"
         resposta += f"Onda: {previsao['onda']} m ({previsao['direcao_onda']}°)\n"
+        resposta += f"Período: {previsao['periodo']} s\n"
         resposta += f"Vento: {previsao['vento']} km/h ({previsao['direcao_vento']}°)\n"
-        resposta += f"⭐️ Condição: {previsao['estrelas']}\n"
-        resposta += f"📌 Análise: {previsao['comentario']}\n\n"
+        resposta += f"\u2B50 Condição: {previsao['estrelas']}\n"
+        resposta += f"\U0001F4CC Análise: {previsao['comentario']}\n\n"
 
     await update.message.reply_markdown(resposta)
     return ConversationHandler.END
 
-async def obter_previsao_completa(lat, lon, dias):
+async def obter_previsao_openmeteo(lat, lon, dias):
+    url_marine = "https://marine-api.open-meteo.com/v1/marine"
+    url_forecast = "https://api.open-meteo.com/v1/forecast"
+    start = dias[0].isoformat()
+    end = dias[-1].isoformat()
+
     try:
-        start = dias[0].isoformat()
-        end = dias[-1].isoformat()
-
         async with httpx.AsyncClient() as client:
-            marine_url = "https://marine-api.open-meteo.com/v1/marine"
-            forecast_url = "https://api.open-meteo.com/v1/forecast"
-
-            marine_resp = await client.get(marine_url, params={
+            resp_marine = await client.get(url_marine, params={
                 "latitude": lat,
                 "longitude": lon,
-                "hourly": "wave_height,wave_direction,wind_wave_height,wind_wave_direction",
+                "hourly": "wave_height,wave_direction,swell_wave_height,swell_wave_period",
                 "timezone": "America/Sao_Paulo",
                 "start_date": start,
                 "end_date": end
             })
-            forecast_resp = await client.get(forecast_url, params={
+            resp_forecast = await client.get(url_forecast, params={
                 "latitude": lat,
                 "longitude": lon,
                 "hourly": "wind_speed_10m,wind_direction_10m",
@@ -94,36 +95,55 @@ async def obter_previsao_completa(lat, lon, dias):
                 "end_date": end
             })
 
-        marine_resp.raise_for_status()
-        forecast_resp.raise_for_status()
-        m = marine_resp.json()["hourly"]
-        f = forecast_resp.json()["hourly"]
+        resp_marine.raise_for_status()
+        resp_forecast.raise_for_status()
+        dados_marine = resp_marine.json()
+        dados_forecast = resp_forecast.json()
 
         previsoes = []
+
         for dia in dias:
             data_str = dia.isoformat()
-            indices = [i for i, t in enumerate(m["time"]) if t.startswith(data_str)]
+            horas = dados_marine["hourly"]["time"]
+            alturas = dados_marine["hourly"]["swell_wave_height"]
+            periodos = dados_marine["hourly"]["swell_wave_period"]
+            direcoes_onda = dados_marine["hourly"]["wave_direction"]
+            ventos = dados_forecast["hourly"]["wind_speed_10m"]
+            direcoes_vento = dados_forecast["hourly"]["wind_direction_10m"]
+
+            indices = [i for i, h in enumerate(horas) if h.startswith(data_str)]
             if not indices:
                 continue
 
-            melhor_janela = calcular_melhor_janela(indices, m["wave_height"], m["wave_direction"], f["wind_speed_10m"], f["wind_direction_10m"])
-            i_best = indices[max(range(len(indices)), key=lambda i: m["wave_height"][indices[i]])]
+            melhor_i = max(indices, key=lambda i: alturas[i] * periodos[i])
+            janela = [i for i in indices if 90 <= direcoes_onda[i] <= 150]
+            if janela:
+                inicio = horas[janela[0]][11:16]
+                fim = horas[janela[-1]][11:16]
+                melhor_janela = f"{inicio} às {fim}"
+            else:
+                melhor_janela = "Sem janela ideal"
 
-            estrelas, comentario = avaliar_condicoes(
-                m["wave_height"][i_best],
-                m["wave_direction"][i_best],
-                f["wind_speed_10m"][i_best],
-                f["wind_direction_10m"][i_best],
-                m["wind_wave_height"][i_best]
-            )
+            altura = round(alturas[melhor_i], 1)
+            periodo = round(periodos[melhor_i], 1)
+            estrelas_num = min(int(altura * (periodo / 4)), 5)
+            estrelas = "⭐️" * estrelas_num
+
+            if estrelas_num <= 2:
+                comentario = "Condição fraca para o pico"
+            elif estrelas_num == 3:
+                comentario = "Condição regular, com potencial"
+            else:
+                comentario = "Boa condição para o pico"
 
             previsoes.append({
                 "data": dia.strftime("%d/%m/%Y"),
                 "melhor_janela": melhor_janela,
-                "onda": round(m["wave_height"][i_best], 1),
-                "direcao_onda": int(m["wave_direction"][i_best]),
-                "vento": int(f["wind_speed_10m"][i_best]),
-                "direcao_vento": int(f["wind_direction_10m"][i_best]),
+                "onda": altura,
+                "direcao_onda": int(direcoes_onda[melhor_i]),
+                "periodo": periodo,
+                "vento": int(ventos[melhor_i]),
+                "direcao_vento": int(direcoes_vento[melhor_i]),
                 "estrelas": estrelas,
                 "comentario": comentario
             })
@@ -131,47 +151,9 @@ async def obter_previsao_completa(lat, lon, dias):
         return previsoes
 
     except Exception as e:
-        print("❌ Erro ao consultar as APIs:")
+        print("❌ Erro na API Open-Meteo:", e)
         print(traceback.format_exc())
         return None
-
-def avaliar_condicoes(onda, dir_onda, vento, dir_vento, energia):
-    estrelas = 0
-    comentario = "Condição fraca para o pico"
-
-    if onda >= 1.0:
-        estrelas += 1
-    if 90 <= dir_onda <= 140:
-        estrelas += 1
-    if vento < 10 and (dir_vento <= 45 or dir_vento >= 315):
-        estrelas += 1
-    if energia > 0.3:
-        estrelas += 1
-    if onda >= 1.5 and energia >= 0.5:
-        estrelas += 1
-
-    if estrelas >= 4:
-        comentario = "Boa condição para o pico"
-    elif estrelas == 3:
-        comentario = "Condição regular, com potencial"
-
-    return "⭐️" * estrelas, comentario
-
-def calcular_melhor_janela(indices, ondas, dir_ondas, ventos, dir_ventos):
-    janela = []
-    for i in indices:
-        if ondas[i] < 0.8:
-            continue
-        if not (90 <= dir_ondas[i] <= 140):
-            continue
-        if ventos[i] > 12 or not (dir_ventos[i] <= 45 or dir_ventos[i] >= 315):
-            continue
-        hora = f"{i%24:02d}:00"
-        janela.append(hora)
-
-    if not janela:
-        return "Sem janela ideal"
-    return f"{janela[0]} às {janela[-1]}" if len(janela) > 1 else janela[0]
 
 if __name__ == "__main__":
     if not BOT_TOKEN:
