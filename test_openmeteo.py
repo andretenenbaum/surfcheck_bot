@@ -2,8 +2,8 @@ import httpx
 from datetime import date, timedelta
 
 # Coordenadas do pico de Itaúna – Saquarema
-latitude = -22.93668
-longitude = -42.48337
+latitude = -22.94
+longitude = -42.48
 
 # Datas de início e fim da previsão
 hoje = date.today()
@@ -15,7 +15,7 @@ params = {
     "latitude": latitude,
     "longitude": longitude,
     "hourly": "wave_height,wave_direction,wind_speed,wind_direction",
-    "timezone": "America/Sao_Paulo",
+    "timezone": "auto",  # mais seguro
     "start_date": hoje.isoformat(),
     "end_date": fim.isoformat()
 }
@@ -26,7 +26,6 @@ try:
     response.raise_for_status()
     data = response.json()
 
-    # Exibição de amostra dos dados
     print("✅ Previsão recebida com sucesso!")
     print("Horários:", data["hourly"]["time"][:5])
     print("Altura das ondas (m):", data["hourly"]["wave_height"][:5])
