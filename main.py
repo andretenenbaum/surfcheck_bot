@@ -74,14 +74,16 @@ async def obter_previsao_openmeteo(lat, lon, dias):
     end = dias[-1].isoformat()
 
     try:
-        resp = httpx.get(url, params={
-            "latitude": lat,
-            "longitude": lon,
-            "hourly": "wave_height,wave_direction,wind_speed,wind_direction",
-            "timezone": "America/Sao_Paulo",
-            "start_date": start,
-            "end_date": end
-        })
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, params={
+                "latitude": lat,
+                "longitude": lon,
+                "hourly": "wave_height,wave_direction,wind_speed,wind_direction",
+                "timezone": "America/Sao_Paulo",
+                "start_date": start,
+                "end_date": end
+            })
+
         resp.raise_for_status()
         dados = resp.json()
         previsoes = []
@@ -122,7 +124,7 @@ async def obter_previsao_openmeteo(lat, lon, dias):
         return previsoes
 
     except Exception as e:
-        print("Erro na API Open-Meteo:", e)
+        print("❌ Erro na API Open-Meteo:", e)
         return None
 
 if __name__ == "__main__":
