@@ -1,6 +1,7 @@
 import os
 import sys
 import httpx
+import traceback
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
@@ -125,6 +126,7 @@ async def obter_previsao_openmeteo(lat, lon, dias):
 
     except Exception as e:
         print("❌ Erro na API Open-Meteo:", e)
+        print(traceback.format_exc())
         return None
 
 if __name__ == "__main__":
