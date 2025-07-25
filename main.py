@@ -2,7 +2,6 @@ import os
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from dotenv import load_dotenv
-import asyncio
 import sys
 
 # Load environment variables
@@ -19,7 +18,7 @@ async def previsao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Previsão do surf: ondas de 1,5m, vento fraco, swell de sudeste."
     )
 
-async def main() -> None:
+if __name__ == "__main__":
     if not BOT_TOKEN:
         print("❌ BOT_TOKEN não está definido. Configure via .env ou Fly Secrets.")
         sys.exit(1)
@@ -29,13 +28,4 @@ async def main() -> None:
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("previsao", previsao))
-
-    await application.run_polling()
-
-if __name__ == "__main__":
-    import asyncio
-    try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(main())
-    except RuntimeError as e:
-        print(f"❌ RuntimeError: {e}")
+    application.run_polling()
