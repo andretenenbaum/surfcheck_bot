@@ -1,129 +1,162 @@
 import os
-import datetime
+import logging
+from datetime import datetime, timedelta
+import pytz
 import httpx
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from dotenv import load_dotenv
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-def grau_para_letra(grau):
-    if grau is None:
-        return "?"
-    direcoes = ["N", "NE", "L", "SE", "S", "SO", "O", "NO"]
-    idx = round(grau / 45) % 8
-    return direcoes[idx]
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
-def classificar_onda(altura):
-    if altura == 0:
-        return "Flat"
-    elif altura < 0.5:
-        return "Mar pequeno"
-    elif altura < 1:
-        return "Boas condições de tamanho"
-    elif altura < 1.5:
-        return "Mar com tamanho"
-    else:
-        return "Mar grande"
+picos = {
+    "1": {
+        "nome": "Itaúna – Saquarema",
+        "latitude": -22.93668,
+        "longitude": -42.48337
+    }
+}
 
-def calcular_estrelas(altura, periodo, vento, direcao_vento):
-    if altura is None or periodo is None or vento is None:
-        return 0
-    estrelas = 1
-    if 0.5 <= altura <= 2 and periodo >= 8:
-        estrelas += 1
-    if vento <= 10 and (direcao_vento in ["N", "NO", "NE", "L"]):
-        estrelas += 1
-    if estrelas > 3:
-        estrelas = 3
-    return estrelas
-
-def texto_analise(estrelas):
-    if estrelas == 1:
-        return "Condições fracas, mar pequeno ou desorganizado."
-    elif estrelas == 2:
-        return "Condições razoáveis, pode render algumas boas ondas."
-    else:
-        return "Boas condições! Vale conferir, ondas com potencial."
-
-async def previsao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("Escolha o período da previsão:\n1. Hoje\n2. Amanhã\n3. Próximos 3 dias")
-
-    def verificar_resposta(resposta):
-        return resposta.text in ["1", "2", "3"]
-
-    resposta = await context.application.bot.wait_for_message(chat_id=update.effective_chat.id, timeout=30, filters=verificar_resposta)
-
-    if resposta is None:
-        await update.message.reply_text("Tempo esgotado. Envie /previsao novamente.")
-        return
-
-    escolha = resposta.text
-    hoje = datetime.date.today()
-    if escolha == "1":
-        datas = [hoje]
-    elif escolha == "2":
-        datas = [hoje + datetime.timedelta(days=1)]
-    else:
-        datas = [hoje + datetime.timedelta(days=i) for i in range(3)]
-
-    latitude = -22.93668
-    longitude = -42.48337
-    tz = "America/Sao_Paulo"
-
-    try:
-        inicio = datas[0].strftime("%Y-%m-%d")
-        fim = datas[-1].strftime("%Y-%m-%d")
-
-        url_mar = f"https://marine-api.open-meteo.com/v1/marine?latitude={latitude}&longitude={longitude}&hourly=wave_height,wave_direction,swell_wave_period,wind_speed_10m,wind_direction_10m,swell_wave_direction&timezone={tz}&start_date={inicio}&end_date={fim}"
-        async with httpx.AsyncClient() as client:
-            resposta = await client.get(url_mar)
-        dados = resposta.json()
-
-        horas = dados["hourly"]["time"]
-        altura_ondas = dados["hourly"]["wave_height"]
-        direcao_swell = dados["hourly"]["swell_wave_direction"]
-        periodo = dados["hourly"]["swell_wave_period"]
-        vento = dados["hourly"]["wind_speed_10m"]
-        direcao_vento = dados["hourly"]["wind_direction_10m"]
-
-        previsao_txt = "📍 Previsão para Itaúna – Saquarema\n"
-        if len(datas) > 1:
-            previsao_txt += f"🗓️ De {datas[0].strftime('%d/%m')} até {datas[-1].strftime('%d/%m')}\n"
-        previsao_txt += "\n"
-
-        for dia in datas:
-            dia_str = dia.strftime("%Y-%m-%d")
-            indices = [i for i, h in enumerate(horas) if h.startswith(dia_str)]
-            if not indices:
-                continue
-            altura_dia = sum([altura_ondas[i] for i in indices]) / len(indices)
-            periodo_dia = sum([periodo[i] for i in indices if periodo[i] is not None]) / len(indices)
-            vento_dia = sum([vento[i] for i in indices]) / len(indices)
-            dir_vento_dia = grau_para_letra(sum([direcao_vento[i] for i in indices]) / len(indices))
-            dir_swell_dia = grau_para_letra(sum([direcao_swell[i] for i in indices]) / len(indices))
-
-            estrelas = calcular_estrelas(altura_dia, periodo_dia, vento_dia, dir_vento_dia)
-            descricao = texto_analise(estrelas)
-
-            previsao_txt += f"📅 {dia.strftime('%d/%m')} – {'⭐' * estrelas}\n"
-            previsao_txt += f"🌊 Altura: {altura_dia:.2f}m | 🌬️ Vento: {vento_dia:.1f} km/h ({dir_vento_dia}) | 🌊 Swell: {dir_swell_dia}\n"
-            previsao_txt += f"📈 Período médio: {periodo_dia:.1f}s\n"
-            previsao_txt += f"🔍 {descricao}\n\n"
-
-        await update.message.reply_text(previsao_txt)
-
-    except Exception as e:
-        print("Erro:", e)
-        await update.message.reply_text("Erro ao obter a previsão. Tente novamente mais tarde.")
+keyboard_picos = [["1"]]
+keyboard_periodos = [["1", "2", "3"]]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("🌊 Olá! Eu sou o SurfCheck Bot.\nEnvie /previsao para saber as condições em Itaúna - Saquarema.")
 
-if __name__ == "__main__":
+async def previsao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("Qual pico você deseja consultar?", reply_markup=ReplyKeyboardMarkup(keyboard_picos, one_time_keyboard=True, resize_keyboard=True))
+    context.user_data['awaiting_pico'] = True
+
+async def processar_resposta(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    texto = update.message.text
+
+    if context.user_data.get('awaiting_pico'):
+        if texto in picos:
+            context.user_data['pico'] = texto
+            context.user_data['awaiting_pico'] = False
+            await update.message.reply_text("Deseja a previsão para:\n1. Hoje\n2. Amanhã\n3. Próximos 3 dias", reply_markup=ReplyKeyboardMarkup(keyboard_periodos, one_time_keyboard=True, resize_keyboard=True))
+            context.user_data['awaiting_periodo'] = True
+        else:
+            await update.message.reply_text("Pico inválido. Tente novamente.")
+
+    elif context.user_data.get('awaiting_periodo'):
+        if texto in ["1", "2", "3"]:
+            context.user_data['awaiting_periodo'] = False
+            await obter_previsao(update, context, int(texto))
+        else:
+            await update.message.reply_text("Opção inválida. Tente novamente.")
+
+async def obter_previsao(update: Update, context: ContextTypes.DEFAULT_TYPE, dias: int) -> None:
+    pico_id = context.user_data.get('pico')
+    if not pico_id:
+        await update.message.reply_text("Pico não identificado. Envie /previsao novamente.")
+        return
+
+    pico = picos[pico_id]
+    latitude = pico['latitude']
+    longitude = pico['longitude']
+    nome_pico = pico['nome']
+
+    try:
+        hoje = datetime.utcnow().date()
+        inicio = hoje.isoformat()
+        fim = (hoje + timedelta(days=dias-1)).isoformat()
+
+        url = (
+            f"https://marine-api.open-meteo.com/v1/marine?latitude={latitude}&longitude={longitude}"
+            f"&hourly=wave_height,wave_direction,wind_speed,wind_direction,swells,swells_direction"
+            f"&daily=wave_height_max,swells_period_max"
+            f"&tide=true"
+            f"&start_date={inicio}&end_date={fim}&timezone=UTC"
+        )
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            data = response.json()
+
+        texto = f"📍 Previsão para {nome_pico}\n🗓️ De {inicio} até {fim}\n"
+
+        br_tz = pytz.timezone("America/Sao_Paulo")
+
+        for i, dia in enumerate(data['daily']['time']):
+            altura = data['daily']['wave_height_max'][i]
+            periodo = data['daily']['swells_period_max'][i]
+
+            condicao = avaliar_condicao(altura)
+            estrelas = classificar_ondas(altura)
+
+            texto += f"\n📅 {dia} – {estrelas}⭐"
+            texto += f"\n🌊 Altura: {altura:.2f}m"
+            texto += f" | 🌬️ Vento: {data['hourly']['wind_speed'][i*24]:.1f} km/h ({converter_direcao(data['hourly']['wind_direction'][i*24])})"
+            texto += f" | 🌊 Swell: {converter_direcao(data['hourly']['swells_direction'][i*24])}"
+            texto += f"\n📈 Período médio: {periodo:.1f}s"
+
+            # Maré
+            mares_dia = [t for t in data['tide']['extremes'] if t['timestamp'].startswith(dia)]
+            if mares_dia:
+                cheia = next((m for m in mares_dia if m['type'] == 'high'), None)
+                vazia = next((m for m in mares_dia if m['type'] == 'low'), None)
+                if cheia and vazia:
+                    hora_cheia = datetime.fromisoformat(cheia['timestamp']).astimezone(br_tz).strftime("%H:%M")
+                    hora_vazia = datetime.fromisoformat(vazia['timestamp']).astimezone(br_tz).strftime("%H:%M")
+                    diferenca = abs(cheia['height'] - vazia['height'])
+                    texto += f"\n🌊 Maré: cheia às {hora_cheia}, vazia às {hora_vazia}, variação de {diferenca:.2f}m"
+
+            texto += f"\n🔍 {condicao}\n"
+
+        await update.message.reply_text(texto)
+
+    except Exception as e:
+        logging.error(f"Erro ao obter previsão: {e}")
+        await update.message.reply_text("Erro ao obter a previsão. Tente novamente mais tarde.")
+
+def classificar_ondas(altura):
+    if altura == 0:
+        return 0
+    elif altura < 0.5:
+        return 1
+    elif altura < 1:
+        return 2
+    elif altura < 1.5:
+        return 3
+    elif altura < 2:
+        return 4
+    else:
+        return 5
+
+def avaliar_condicao(altura):
+    if altura == 0:
+        return "Flat, sem ondas."
+    elif altura < 0.5:
+        return "Condições fracas, mar pequeno."
+    elif altura < 1:
+        return "Boas condições para iniciantes."
+    elif altura < 1.5:
+        return "Ondas com bom tamanho, atenção à formação."
+    elif altura < 2:
+        return "Mar grande, ideal para experientes."
+    else:
+        return "Ondas pesadas, apenas para os mais preparados."
+
+def converter_direcao(graus):
+    direcoes = ['N', 'NE', 'L', 'SE', 'S', 'SO', 'O', 'NO']
+    idx = round(graus % 360 / 45) % 8
+    return direcoes[idx]
+
+def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("previsao", previsao))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, processar_resposta))
+
     print("✅ Iniciando SurfCheck Bot...")
     app.run_polling()
+
+if __name__ == '__main__':
+    main()
