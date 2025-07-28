@@ -1,196 +1,118 @@
 import os
-import sys
+import datetime
 import httpx
-import traceback
-from datetime import datetime, timedelta
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 from dotenv import load_dotenv
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-PICOS = {
-    "1": {"nome": "Itaúna – Saquarema", "latitude": -22.93668, "longitude": -42.48337}
-}
+# Utilitários
+DIRECOES = ['N', 'NE', 'L', 'SE', 'S', 'SO', 'O', 'NO']
 
-(ESCOLHENDO_PICO, ESCOLHENDO_DIA) = range(2)
+def graus_para_direcao(graus):
+    idx = round(((graus % 360) / 45)) % 8
+    return DIRECOES[idx]
 
-def direcao_cardinal(graus):
-    direcoes = ['N', 'NE', 'L', 'SE', 'S', 'SO', 'O', 'NO']
-    ix = round(graus / 45) % 8
-    return direcoes[ix]
+def formatar_mare(mare_data):
+    if not mare_data or 'high_tide' not in mare_data or 'low_tide' not in mare_data:
+        return "Dados de maré indisponíveis"
+    try:
+        cheia = mare_data['high_tide'][0]['time'][-5:]
+        vazia = mare_data['low_tide'][0]['time'][-5:]
+        altura_cheia = mare_data['high_tide'][0]['height']
+        altura_vazia = mare_data['low_tide'][0]['height']
+        variacao = round(abs(altura_cheia - altura_vazia), 2)
+        return f"Maré cheia: {cheia}, Maré vazia: {vazia}, Variação: {variacao}m"
+    except:
+        return "Erro ao processar marés"
 
+# Ponto fixo de Itaúna - Saquarema
+LATITUDE = -22.93668
+LONGITUDE = -42.48337
+
+async def obter_previsao_completa(data):
+    try:
+        # Previsão marítima (altura e direção do swell)
+        url_marine = f"https://marine-api.open-meteo.com/v1/marine?latitude={LATITUDE}&longitude={LONGITUDE}&hourly=wave_height,wave_direction,wind_wave_height,wind_wave_direction&timezone=America/Sao_Paulo&start_date={data}&end_date={data}"
+
+        # Vento
+        url_vento = f"https://api.open-meteo.com/v1/forecast?latitude={LATITUDE}&longitude={LONGITUDE}&hourly=wind_speed_10m,wind_direction_10m&timezone=America/Sao_Paulo&start_date={data}&end_date={data}"
+
+        # Marés
+        url_mare = f"https://marine-api.open-meteo.com/v1/marine?latitude={LATITUDE}&longitude={LONGITUDE}&daily=high_tide,low_tide&timezone=America/Sao_Paulo&start_date={data}&end_date={data}"
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp_marine, resp_vento, resp_mare = await client.get(url_marine), await client.get(url_vento), await client.get(url_mare)
+            dados_marine = resp_marine.json()
+            dados_vento = resp_vento.json()
+            dados_mare = resp_mare.json()
+
+        alturas = dados_marine['hourly']['wave_height']
+        direcoes_swell = dados_marine['hourly']['wave_direction']
+        direcoes_swell_txt = graus_para_direcao(sum(direcoes_swell) / len(direcoes_swell))
+        altura_media = round(sum(alturas) / len(alturas), 1)
+
+        direcoes_vento = dados_vento['hourly']['wind_direction_10m']
+        direcao_vento_txt = graus_para_direcao(sum(direcoes_vento) / len(direcoes_vento))
+
+        texto_mare = formatar_mare(dados_mare.get('daily', {}))
+
+        resposta = (
+            f"🌊 **Previsão para {data} em Itaúna - Saquarema**\n\n"
+            f"Altura média das ondas: {altura_media}m\n"
+            f"Direção do swell: {direcoes_swell_txt}\n"
+            f"Direção do vento: {direcao_vento_txt}\n"
+            f"{texto_mare}"
+        )
+        return resposta
+    except Exception as e:
+        print(f"Erro ao obter dados: {e}")
+        return "❌ Erro ao obter a previsão. Tente novamente mais tarde."
+
+# Comandos
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("🌊 Olá! Eu sou o SurfCheck Bot. Envie /previsao para saber as condições do mar.")
+    await update.message.reply_text(
+        "🌊 Olá! Eu sou o SurfCheck Bot.\nEnvie /previsao para saber as condições em Itaúna - Saquarema."
+    )
 
 async def previsao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    mensagem = "Escolha o pico de surf (digite o número):\n"
-    for numero, dados in PICOS.items():
-        mensagem += f"{numero}. {dados['nome']}\n"
-    await update.message.reply_text(mensagem)
-    return ESCOLHENDO_PICO
+    opcoes = "Escolha o período da previsão:\n1. Hoje\n2. Amanhã\n3. Próximos 3 dias"
+    await update.message.reply_text(opcoes)
+    return 1
 
-async def escolher_pico(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    escolha = update.message.text.strip()
-    if escolha not in PICOS:
-        await update.message.reply_text("Escolha inválida. Por favor, envie um número válido.")
-        return ESCOLHENDO_PICO
-    context.user_data["pico"] = PICOS[escolha]
-    await update.message.reply_text("Deseja previsão para:\n1. Hoje\n2. Amanhã\n3. Próximos 3 dias")
-    return ESCOLHENDO_DIA
-
-async def escolher_dia(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    escolha = update.message.text.strip()
-    hoje = datetime.now().date()
-
-    if escolha == "1":
-        dias = [hoje]
-    elif escolha == "2":
-        dias = [hoje + timedelta(days=1)]
-    elif escolha == "3":
-        dias = [hoje + timedelta(days=i) for i in range(3)]
+async def receber_opcao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    opcao = update.message.text.strip()
+    hoje = datetime.date.today()
+    if opcao == "1":
+        resposta = await obter_previsao_completa(hoje.isoformat())
+        await update.message.reply_text(resposta)
+    elif opcao == "2":
+        resposta = await obter_previsao_completa((hoje + datetime.timedelta(days=1)).isoformat())
+        await update.message.reply_text(resposta)
+    elif opcao == "3":
+        for i in range(3):
+            data = (hoje + datetime.timedelta(days=i)).isoformat()
+            resposta = await obter_previsao_completa(data)
+            await update.message.reply_text(resposta)
     else:
-        await update.message.reply_text("Escolha inválida. Envie 1, 2 ou 3.")
-        return ESCOLHENDO_DIA
-
-    pico = context.user_data["pico"]
-    previsoes = await obter_previsao_completa(pico["latitude"], pico["longitude"], dias)
-
-    if not previsoes:
-        await update.message.reply_text("Erro ao obter a previsão. Tente novamente mais tarde.")
-        return ConversationHandler.END
-
-    resposta = f"🌊 *Previsão para {pico['nome']}*\n\n"
-    for previsao in previsoes:
-        resposta += f"📅 {previsao['data']}\n"
-        resposta += f"Melhor horário: {previsao['melhor_horario']}\n"
-        resposta += f"Altura: {previsao['onda']} m\n"
-        resposta += f"Swell: {previsao['direcao_onda']} ({previsao['direcao_onda_letra']})\n"
-        resposta += f"Vento: {previsao['vento']} km/h ({previsao['direcao_vento_letra']})\n"
-        resposta += f"Maré: cheia às {previsao['mare_cheia']} / vazia às {previsao['mare_vazia']}\n"
-        resposta += f"Variação: {previsao['variacao_mare']} m\n"
-        resposta += f"⭐️ Condição: {previsao['estrelas']}\n"
-        resposta += f"📌 Análise: {previsao['comentario']}\n\n"
-
-    await update.message.reply_markdown(resposta)
+        await update.message.reply_text("Opção inválida. Envie /previsao para tentar novamente.")
     return ConversationHandler.END
 
-async def obter_previsao_completa(lat, lon, dias):
-    try:
-        start = dias[0].isoformat()
-        end = dias[-1].isoformat()
-
-        async with httpx.AsyncClient() as client:
-            marine = await client.get("https://marine-api.open-meteo.com/v1/marine", params={
-                "latitude": lat,
-                "longitude": lon,
-                "hourly": "wave_height,wave_direction,wind_wave_height,wind_wave_direction",
-                "timezone": "America/Sao_Paulo",
-                "start_date": start,
-                "end_date": end
-            })
-            marine.raise_for_status()
-            mdata = marine.json()
-
-            wind = await client.get("https://api.open-meteo.com/v1/forecast", params={
-                "latitude": lat,
-                "longitude": lon,
-                "hourly": "wind_speed_10m,wind_direction_10m",
-                "timezone": "America/Sao_Paulo",
-                "start_date": start,
-                "end_date": end
-            })
-            wind.raise_for_status()
-            wdata = wind.json()
-
-            tide = await client.get("https://marine-api.open-meteo.com/v1/tide", params={
-                "latitude": lat,
-                "longitude": lon,
-                "timezone": "America/Sao_Paulo",
-                "start_date": start,
-                "end_date": end
-            })
-            tide.raise_for_status()
-            tdata = tide.json()
-
-        previsoes = []
-        for dia in dias:
-            data_str = dia.isoformat()
-            horas = mdata["hourly"]["time"]
-            ondas = mdata["hourly"]["wave_height"]
-            direcoes_onda = mdata["hourly"]["wave_direction"]
-
-            ventos = wdata["hourly"]["wind_speed_10m"]
-            direcoes_vento = wdata["hourly"]["wind_direction_10m"]
-
-            indices = [i for i, h in enumerate(horas) if h.startswith(data_str)]
-            if not indices:
-                continue
-
-            i_best = max(indices, key=lambda i: ondas[i])
-            max_onda = ondas[i_best]
-            melhor_hora = horas[i_best][11:16]
-
-            cheia, vazia = "-", "-"
-            alturas = []
-            for t, h in zip(tdata["hourly"]["time"], tdata["hourly"]["tide_height"]):
-                if t.startswith(data_str):
-                    alturas.append((t, h))
-            if alturas:
-                cheia = max(alturas, key=lambda x: x[1])[0][11:16]
-                vazia = min(alturas, key=lambda x: x[1])[0][11:16]
-                variacao = round(max(h for _, h in alturas) - min(h for _, h in alturas), 2)
-            else:
-                variacao = "-"
-
-            estrelas_num = int(min(max_onda * 2, 5))
-            estrelas = "⭐️" * estrelas_num
-            comentario = (
-                "Condição fraca para o pico" if estrelas_num <= 2 else
-                "Condição regular, com potencial" if estrelas_num == 3 else
-                "Boa condição para o pico"
-            )
-
-            previsoes.append({
-                "data": dia.strftime("%d/%m/%Y"),
-                "melhor_horario": melhor_hora,
-                "onda": round(max_onda, 1),
-                "direcao_onda": int(direcoes_onda[i_best]),
-                "direcao_onda_letra": direcao_cardinal(direcoes_onda[i_best]),
-                "vento": int(ventos[i_best]),
-                "direcao_vento_letra": direcao_cardinal(direcoes_vento[i_best]),
-                "mare_cheia": cheia,
-                "mare_vazia": vazia,
-                "variacao_mare": variacao,
-                "estrelas": estrelas,
-                "comentario": comentario
-            })
-
-        return previsoes
-
-    except Exception as e:
-        print("❌ Erro ao consultar as APIs:", e)
-        print(traceback.format_exc())
-        return None
-
-if __name__ == "__main__":
-    if not BOT_TOKEN:
-        print("❌ BOT_TOKEN não está definido. Configure via .env ou Fly Secrets.")
-        sys.exit(1)
-
-    print("✅ Iniciando SurfCheck Bot...")
-    app = Application.builder().token(BOT_TOKEN).build()
+if __name__ == '__main__':
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("previsao", previsao)],
         states={
-            ESCOLHENDO_PICO: [MessageHandler(filters.TEXT & ~filters.COMMAND, escolher_pico)],
-            ESCOLHENDO_DIA: [MessageHandler(filters.TEXT & ~filters.COMMAND, escolher_dia)],
+            1: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_opcao)]
         },
-        fallbacks=[],
+        fallbacks=[]
     )
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv_handler)
+
+    print("✅ Iniciando SurfCheck Bot...")
     app.run_polling()
