@@ -23,18 +23,22 @@ picos = {
     }
 }
 
-keyboard_picos = [["1"]]
+keyboard_picos = [[chave] for chave in picos.keys()]
 keyboard_periodos = [["1", "2", "3"]]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("🌊 Olá! Eu sou o SurfCheck Bot.\nEnvie /previsao para saber as condições em Itaúna - Saquarema.")
+    await update.message.reply_text("🌊 Olá! Eu sou o SurfCheck Bot.\nEnvie /previsao para saber as condições.")
 
 async def previsao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("Qual pico você deseja consultar?", reply_markup=ReplyKeyboardMarkup(keyboard_picos, one_time_keyboard=True, resize_keyboard=True))
+    mensagem_picos = "🌊 Qual pico deseja consultar?\n"
+    for chave, info in picos.items():
+        mensagem_picos += f"{chave}. {info['nome']}\n"
+
+    await update.message.reply_text(mensagem_picos, reply_markup=ReplyKeyboardMarkup(keyboard_picos, one_time_keyboard=True, resize_keyboard=True))
     context.user_data['awaiting_pico'] = True
 
 async def processar_resposta(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    texto = update.message.text
+    texto = update.message.text.strip()
 
     if context.user_data.get('awaiting_pico'):
         if texto in picos:
@@ -81,13 +85,11 @@ async def obter_previsao(update: Update, context: ContextTypes.DEFAULT_TYPE, dia
             data = response.json()
 
         texto = f"📍 Previsão para {nome_pico}\n🗓️ De {inicio} até {fim}\n"
-
         br_tz = pytz.timezone("America/Sao_Paulo")
 
         for i, dia in enumerate(data['daily']['time']):
             altura = data['daily']['wave_height_max'][i]
             periodo = data['daily']['swells_period_max'][i]
-
             condicao = avaliar_condicao(altura)
             estrelas = classificar_ondas(altura)
 
@@ -97,7 +99,6 @@ async def obter_previsao(update: Update, context: ContextTypes.DEFAULT_TYPE, dia
             texto += f" | 🌊 Swell: {converter_direcao(data['hourly']['swells_direction'][i*24])}"
             texto += f"\n📈 Período médio: {periodo:.1f}s"
 
-            # Maré
             mares_dia = [t for t in data['tide']['extremes'] if t['timestamp'].startswith(dia)]
             if mares_dia:
                 cheia = next((m for m in mares_dia if m['type'] == 'high'), None)
