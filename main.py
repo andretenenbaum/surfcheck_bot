@@ -30,7 +30,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("🌊 Olá! Eu sou o SurfCheck Bot.\nEnvie /previsao para saber as condições em Itaúna - Saquarema.")
 
 async def previsao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("Qual pico você deseja consultar?", reply_markup=ReplyKeyboardMarkup(keyboard_picos, one_time_keyboard=True, resize_keyboard=True))
+    # Agora mostra o nome do pico no texto da pergunta
+    texto_picos = "\n".join([f"{id}. {pico['nome']}" for id, pico in picos.items()])
+    await update.message.reply_text(f"Qual pico você deseja consultar?\n{texto_picos}", reply_markup=ReplyKeyboardMarkup(keyboard_picos, one_time_keyboard=True, resize_keyboard=True))
     context.user_data['awaiting_pico'] = True
 
 async def processar_resposta(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -86,7 +88,7 @@ async def obter_previsao(update: Update, context: ContextTypes.DEFAULT_TYPE, dia
 
         for i, dia in enumerate(data['daily']['time']):
             altura = data['daily']['wave_height_max'][i]
-            periodo = data['daily'].get('swells_period_max', [None]*len(data['daily']['time']))[i]
+            periodo = data['daily']['swells_period_max'][i] if data['daily']['swells_period_max'][i] is not None else 0.0
 
             condicao = avaliar_condicao(altura)
             estrelas = classificar_ondas(altura)
@@ -95,11 +97,7 @@ async def obter_previsao(update: Update, context: ContextTypes.DEFAULT_TYPE, dia
             texto += f"\n🌊 Altura: {altura:.2f}m"
             texto += f" | 🌬️ Vento: {data['hourly']['wind_speed'][i*24]:.1f} km/h ({converter_direcao(data['hourly']['wind_direction'][i*24])})"
             texto += f" | 🌊 Swell: {converter_direcao(data['hourly']['swells_direction'][i*24])}"
-
-            if periodo is not None:
-                texto += f"\n📈 Período médio: {periodo:.1f}s"
-            else:
-                texto += f"\n📈 Período médio: Indisponível"
+            texto += f"\n📈 Período médio: {periodo:.1f}s"
 
             # Maré
             mares_dia = [t for t in data['tide']['extremes'] if t['timestamp'].startswith(dia)]
