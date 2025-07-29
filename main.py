@@ -30,7 +30,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("🌊 Olá! Eu sou o SurfCheck Bot.\nEnvie /previsao para saber as condições em Itaúna - Saquarema.")
 
 async def previsao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("Qual pico você deseja consultar?\n1. Itaúna – Saquarema", reply_markup=ReplyKeyboardMarkup(keyboard_picos, one_time_keyboard=True, resize_keyboard=True))
+    await update.message.reply_text("Qual pico você deseja consultar?", reply_markup=ReplyKeyboardMarkup(keyboard_picos, one_time_keyboard=True, resize_keyboard=True))
     context.user_data['awaiting_pico'] = True
 
 async def processar_resposta(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -65,8 +65,12 @@ async def obter_previsao(update: Update, context: ContextTypes.DEFAULT_TYPE, dia
 
     try:
         hoje = datetime.utcnow().date()
-        inicio = hoje.isoformat()
-        fim = (hoje + timedelta(days=dias-1)).isoformat()
+        if dias == 3:
+            inicio = (hoje + timedelta(days=1)).isoformat()
+            fim = (hoje + timedelta(days=3)).isoformat()
+        else:
+            inicio = hoje.isoformat() if dias == 1 else (hoje + timedelta(days=1)).isoformat()
+            fim = inicio
 
         url = (
             f"https://marine-api.open-meteo.com/v1/marine?latitude={latitude}&longitude={longitude}"
@@ -80,13 +84,15 @@ async def obter_previsao(update: Update, context: ContextTypes.DEFAULT_TYPE, dia
             response = await client.get(url)
             data = response.json()
 
+        if 'daily' not in data or 'wave_height_max' not in data['daily']:
+            raise ValueError("Dados diários ausentes")
+
         texto = f"📍 Previsão para {nome_pico}\n🗓️ De {inicio} até {fim}\n"
         br_tz = pytz.timezone("America/Sao_Paulo")
 
         for i, dia in enumerate(data['daily']['time']):
             altura = data['daily']['wave_height_max'][i]
             periodo = data['daily']['swells_period_max'][i]
-
             condicao = avaliar_condicao(altura)
             estrelas = classificar_ondas(altura)
 
@@ -107,8 +113,8 @@ async def obter_previsao(update: Update, context: ContextTypes.DEFAULT_TYPE, dia
                         diferenca = abs(cheia['height'] - vazia['height'])
                         texto += f"\n🌊 Maré: cheia às {hora_cheia}, vazia às {hora_vazia}, variação de {diferenca:.2f}m"
             except Exception as e:
-                logging.warning(f"Erro ao obter maré: {e}")
-                texto += "\n⚠️ Dados de maré indisponíveis no momento."
+                logging.warning(f"Falha ao obter maré: {e}")
+                texto += "\n🌊 Maré: dados indisponíveis no momento."
 
             texto += f"\n🔍 {condicao}\n"
 
@@ -156,6 +162,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("previsao", previsao))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, processar_resposta))
+
     print("✅ Iniciando SurfCheck Bot...")
     app.run_polling()
 
