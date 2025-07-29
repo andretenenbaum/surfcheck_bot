@@ -30,9 +30,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("🌊 Olá! Eu sou o SurfCheck Bot.\nEnvie /previsao para saber as condições em Itaúna - Saquarema.")
 
 async def previsao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Agora mostra o nome do pico no texto da pergunta
-    texto_picos = "\n".join([f"{id}. {pico['nome']}" for id, pico in picos.items()])
-    await update.message.reply_text(f"Qual pico você deseja consultar?\n{texto_picos}", reply_markup=ReplyKeyboardMarkup(keyboard_picos, one_time_keyboard=True, resize_keyboard=True))
+    await update.message.reply_text("Qual pico você deseja consultar?\n1. Itaúna – Saquarema", reply_markup=ReplyKeyboardMarkup(keyboard_picos, one_time_keyboard=True, resize_keyboard=True))
     context.user_data['awaiting_pico'] = True
 
 async def processar_resposta(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -83,12 +81,11 @@ async def obter_previsao(update: Update, context: ContextTypes.DEFAULT_TYPE, dia
             data = response.json()
 
         texto = f"📍 Previsão para {nome_pico}\n🗓️ De {inicio} até {fim}\n"
-
         br_tz = pytz.timezone("America/Sao_Paulo")
 
         for i, dia in enumerate(data['daily']['time']):
             altura = data['daily']['wave_height_max'][i]
-            periodo = data['daily']['swells_period_max'][i] if data['daily']['swells_period_max'][i] is not None else 0.0
+            periodo = data['daily']['swells_period_max'][i]
 
             condicao = avaliar_condicao(altura)
             estrelas = classificar_ondas(altura)
@@ -99,16 +96,19 @@ async def obter_previsao(update: Update, context: ContextTypes.DEFAULT_TYPE, dia
             texto += f" | 🌊 Swell: {converter_direcao(data['hourly']['swells_direction'][i*24])}"
             texto += f"\n📈 Período médio: {periodo:.1f}s"
 
-            # Maré
-            mares_dia = [t for t in data['tide']['extremes'] if t['timestamp'].startswith(dia)]
-            if mares_dia:
-                cheia = next((m for m in mares_dia if m['type'] == 'high'), None)
-                vazia = next((m for m in mares_dia if m['type'] == 'low'), None)
-                if cheia and vazia:
-                    hora_cheia = datetime.fromisoformat(cheia['timestamp']).astimezone(br_tz).strftime("%H:%M")
-                    hora_vazia = datetime.fromisoformat(vazia['timestamp']).astimezone(br_tz).strftime("%H:%M")
-                    diferenca = abs(cheia['height'] - vazia['height'])
-                    texto += f"\n🌊 Maré: cheia às {hora_cheia}, vazia às {hora_vazia}, variação de {diferenca:.2f}m"
+            try:
+                mares_dia = [t for t in data['tide']['extremes'] if t['timestamp'].startswith(dia)]
+                if mares_dia:
+                    cheia = next((m for m in mares_dia if m['type'] == 'high'), None)
+                    vazia = next((m for m in mares_dia if m['type'] == 'low'), None)
+                    if cheia and vazia:
+                        hora_cheia = datetime.fromisoformat(cheia['timestamp']).astimezone(br_tz).strftime("%H:%M")
+                        hora_vazia = datetime.fromisoformat(vazia['timestamp']).astimezone(br_tz).strftime("%H:%M")
+                        diferenca = abs(cheia['height'] - vazia['height'])
+                        texto += f"\n🌊 Maré: cheia às {hora_cheia}, vazia às {hora_vazia}, variação de {diferenca:.2f}m"
+            except Exception as e:
+                logging.warning(f"Erro ao obter maré: {e}")
+                texto += "\n⚠️ Dados de maré indisponíveis no momento."
 
             texto += f"\n🔍 {condicao}\n"
 
@@ -156,7 +156,6 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("previsao", previsao))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, processar_resposta))
-
     print("✅ Iniciando SurfCheck Bot...")
     app.run_polling()
 
